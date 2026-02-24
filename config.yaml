@@ -1,0 +1,107 @@
+# ToolKit Global Configuration
+
+# Application Settings
+app:
+  name: ToolKit
+  version: 1.0.0
+  log_level: INFO
+  debug: false
+
+# Default Environment Settings
+defaults:
+  environment: docker
+  region: us-east-1
+  timeout: 300
+  max_retries: 3
+
+# Cloud Provider Credentials
+# Note: It's recommended to use environment variables instead of hardcoding credentials
+cloud_providers:
+  aws:
+    region: us-east-1
+    # Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY as environment variables
+  
+  azure:
+    location: eastus
+    # Set AZURE_SUBSCRIPTION_ID, AZURE_TENANT_ID, etc. as environment variables
+  
+  gcp:
+    project_id: my-security-project
+    region: us-central1
+    # Set GOOGLE_APPLICATION_CREDENTIALS as environment variable
+
+# Docker Configuration
+docker:
+  registry: docker.io
+  network: security-net
+  auto_pull: true
+  remove_on_stop: false
+
+# Kubernetes Configuration
+kubernetes:
+  namespace: security
+  context: default
+  timeout: 600
+
+# Reporting Configuration
+reporting:
+  output_dir: ./reports
+  formats:
+    - pdf
+    - html
+    - json
+  include_screenshots: true
+  include_recommendations: true
+
+# Logging Configuration
+logging:
+  file: ./logs/toolkit.log
+  max_size_mb: 100
+  backup_count: 5
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Security Settings
+security:
+  ssl_verify: true
+  api_timeout: 30
+  max_concurrent_scans: 5
+
+# Feature Flags
+features:
+  attack_simulation: true
+  auto_remediation: false
+  threat_intelligence: true
+  compliance_checking: true
+
+# Notification Settings
+notifications:
+  enabled: false
+  channels:
+    email:
+      enabled: false
+      smtp_server: smtp.gmail.com
+      smtp_port: 587
+      from_address: toolkit@security.com
+    
+    slack:
+      enabled: false
+      webhook_url: ""
+    
+    teams:
+      enabled: false
+      webhook_url: ""
+
+# Integration Settings
+integrations:
+  jira:
+    enabled: false
+    url: ""
+    project_key: ""
+  
+  servicenow:
+    enabled: false
+    instance: ""
+  
+  pagerduty:
+    enabled: false
+    api_key: ""
