@@ -24,7 +24,6 @@ A comprehensive CLI framework for deploying, configuring, and managing enterpris
 - [Usage](#usage)
 - [Architecture](#architecture)
 - [Development](#development)
-- [Contributing](#contributing)
 - [License](#license)
 
 ## 🎯 Quick Start
@@ -445,10 +444,6 @@ toolkit deploy module_name tool_name --dry-run
 - [Architecture Overview](docs/architecture.md)
 - [API Reference](docs/api.md)
 
-## 🤝 Contributing
-
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
-
 ### Ways to Contribute
 
 - 🐛 Report bugs and issues
@@ -456,7 +451,6 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 - 📝 Improve documentation
 - 🔧 Add new tool modules
 - ✅ Write tests
-- 🎨 Improve UI/UX
 
 ### Development Workflow
 
@@ -472,19 +466,17 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - MITRE ATT&CK Framework
 - OWASP Foundation
 - Splunk Community
 - All open-source security tool maintainers
 
-## 📞 Support
+## Support
 
-- 📧 Email: support@toolkit.security
-- 💬 Discord: [Join our community](https://discord.gg/toolkit)
-- 🐛 Issues: [GitHub Issues](https://github.com/imharshitaa/toolkit/issues)
-- 📖 Docs: [Documentation](https://toolkit.readthedocs.io)
+- Issues: [GitHub Issues](https://github.com/imharshitaa/toolkit/issues)
+- Docs: [Documentation - wip]
 
 ## 🗺️ Roadmap
 
@@ -499,6 +491,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Made with ❤️ by the ToolKit Team**
+**Made by imharshitaa**
 
-⭐ Star us on GitHub if you find this project useful!
+⭐ Star on GitHub if you find this project useful!
