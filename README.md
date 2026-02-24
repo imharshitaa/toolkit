@@ -2,13 +2,12 @@
 
 **Cloud-based Cybersecurity Products Implementation Solutions**
 
-[![ToolKit CI/CD](https://github.com/imharshitaa/toolkit/actions/workflows/ci.yml/badge.svg)](https://github.com/imharshitaa/toolkit/actions/workflows/ci.yml)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A comprehensive CLI framework for deploying, configuring, and managing enterprise cybersecurity tools across multiple domains including SOC/SIEM, EDR/XDR, Network Security, Application Security, Cloud Security, and more.
 
-## 🚀 Features
+## Features
 
 - **Multi-Domain Support**: SOC, EDR, Network, Application, Cloud, VM, AI Security
 - **Cloud-Native**: Deploy to AWS, Azure, GCP, Kubernetes, or Docker
