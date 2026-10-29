@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+build/
+dist/
+venv/
+.venv/
+
+# ToolKit runtime state and secrets
+.toolkit_state/
+reports/
+logs/
+*.env
+!.env.example
+
+# Terraform state and variable files (can contain secrets in plaintext)
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# OS cruft
+.DS_Store
+*.textClipping

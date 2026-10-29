@@ -1,496 +1,326 @@
 # ToolKit
 
-**Cloud-based Cybersecurity Products Implementation Solutions**
+**A command-line framework for deploying, scanning, and reporting across open-source security tooling — no third-party SaaS credentials required.**
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Tests: 102 passing](https://img.shields.io/badge/tests-102%20passing-brightgreen.svg)](#testing)
 
-A comprehensive CLI framework for deploying, configuring, and managing enterprise cybersecurity tools across multiple domains including SOC/SIEM, EDR/XDR, Network Security, Application Security, Cloud Security, and more.
+ToolKit is a single CLI (`toolkit`) that drives real security tools — Splunk, Wazuh,
+OWASP ZAP, nmap, Trivy, plus two pure-Python static scanners — through one consistent
+`deploy` / `scan` / `report` interface. Every result is backed by real output from the
+underlying tool, persisted to disk, and rendered into an HTML or Markdown report.
 
-## Features
+The CLI also catalogs ~19 enterprise security products (CrowdStrike, Microsoft
+Sentinel, AWS GuardDuty, Tenable, Qualys, etc.) for domain-coverage reference via
+`toolkit list-tools` — those are commercial SaaS products by definition and require
+the vendor's own account, so they're listed, not reimplemented. See
+[Implemented vs. Catalog Tools](#implemented-vs-catalog-tools) for the exact split.
 
-- **Multi-Domain Support**: SOC, EDR, Network, Application, Cloud, VM, AI Security
-- **Cloud-Native**: Deploy to AWS, Azure, GCP, Kubernetes, or Docker
-- **Attack Simulation**: Built-in MITRE ATT&CK scenarios for detection testing
-- **Professional Reports**: Generate executive and technical security reports
-- **Extensible Architecture**: Easy to add new tools and modules
-- **Open Source First**: Prioritizes open-source alternatives alongside enterprise tools
+## Who this is for
 
-## 📋 Table of Contents
+Security engineers who want one CLI to drive a local SOC/AppSec/NetSec lab — spin up
+Splunk or Wazuh, run a ZAP scan against a local target, sweep a subnet with nmap,
+scan a container image with Trivy, or statically audit Terraform/Docker Compose and
+LLM transcripts for common misconfigurations — without juggling five different tool
+invocations and five different report formats.
 
-- [Quick Start](#quick-start)
-- [Installation](#installation)
-- [Supported Tools](#supported-tools)
-- [Usage](#usage)
+## Table of Contents
+
+- [Implemented vs. Catalog Tools](#implemented-vs-catalog-tools)
 - [Architecture](#architecture)
-- [Development](#development)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Security Model](#security-model)
+- [Lab Environments](#lab-environments)
+- [Testing](#testing)
+- [Verified Walkthrough](#verified-walkthrough)
+- [Known Limitations](#known-limitations)
+- [Repository Layout](#repository-layout)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
 - [License](#license)
 
-## 🎯 Quick Start
+## Implemented vs. Catalog Tools
+
+Every entry in `toolkit list-tools <module>` carries a `status` field. **Implemented**
+means the module calls a real local binary, API, or Python logic and returns real
+findings. **Catalog-only** means the tool is listed for domain coverage but requires
+a vendor account ToolKit will never embed credentials for.
+
+| Domain | Implemented | Catalog-only (requires vendor account) |
+|---|---|---|
+| SOC | Splunk, Wazuh | Microsoft Sentinel, IBM QRadar, Elastic SIEM |
+| EDR | Wazuh *(shares the SOC backend)* | CrowdStrike, SentinelOne, Microsoft Defender |
+| NetSec | nmap | Palo Alto, Fortinet, Cisco, OPNsense |
+| AppSec | OWASP ZAP | Burp Suite, Nuclei, Postman |
+| CloudSec | IaC Auditor | AWS GuardDuty, AWS Security Hub, Prisma Cloud, Mandiant |
+| VM | Trivy | Tenable (Nessus), Qualys, Rapid7, OpenVAS |
+| AISec | LLM Risk Scanner | Darktrace, Vectra |
+
+Implemented tools, what each actually does, and how to run them:
+
+| Tool | What it does | Needs |
+|---|---|---|
+| **Splunk** | Deploys Splunk Enterprise (Docker/local/AWS/Kubernetes), runs MITRE ATT&CK event simulations delivered via HTTP Event Collector | Docker, or your own AWS/kubeconfig credentials for cloud paths |
+| **Wazuh** | Deploys the Wazuh manager/indexer/dashboard stack via Docker Compose, reports live container health | Docker |
+| **OWASP ZAP** | Deploys a local ZAP daemon, drives its REST API to spider + actively scan a target | Docker |
+| **nmap** | Wraps the `nmap` binary, parses real XML output into findings | `nmap` installed locally |
+| **Trivy** | Wraps the `trivy` binary (`fs` or `image` mode), parses real JSON CVE output | `trivy` installed locally |
+| **IaC Auditor** | Pure-Python static scanner for `.tf` and `docker-compose.yml` — public ingress on sensitive ports, hardcoded secrets, privileged containers, exposed Docker sockets | Nothing — zero dependencies, zero network access |
+| **LLM Risk Scanner** | Pure-Python heuristic scanner for OWASP LLM Top 10-style patterns (prompt injection, insecure output handling, sensitive data exposure) in transcript/log files | Nothing — zero dependencies, zero network access |
+
+The IaC Auditor and LLM Risk Scanner are regex/rule-based pattern matchers, not
+trained classifiers — they're a fast first pass over text, not a certification of
+safety. Every finding should be reviewed manually.
+
+## Architecture
+
+```
+toolkit/cli.py          ← click command group (version, status, list-tools)
+  ├── toolkit/deploy.py  ← `toolkit deploy <module> <tool>`
+  ├── toolkit/scan.py    ← `toolkit scan <module> <tool>` (--simulate for attack sims)
+  ├── toolkit/report.py  ← `toolkit report <module> <tool>`
+  └── toolkit/open_dashboard.py  ← `toolkit open <module> <tool>`
+        │
+        ▼
+  toolkit/core.py (ToolKitCore)
+    - dynamically imports modules.<DOMAIN>.<tool>.<operation>
+    - every operation module exposes execute(**kwargs) -> bool
+        │
+        ▼
+  modules/<DOMAIN>/<tool>/
+    config.py    ← settings + validate()
+    deploy.py    ← for tools with a deployable backend
+    scan.py       } one or more operations, each calling
+    simulate.py   } toolkit.state.save_result() on completion
+    report.py    ← thin wrapper: load_latest_result() + render_report()
+        │
+        ▼
+  Shared infrastructure (toolkit/):
+    security.py   ← require_authorized_target() — blocks active scans/sims
+                    against anything outside RFC1918 + loopback unless
+                    --i-have-authorization is passed
+    state.py      ← persists every run's result to .toolkit_state/*.json
+    reporting.py  ← renders persisted state into HTML or Markdown
+```
+
+Each module directory has its own `README.md` with full configuration and usage
+details — see [Repository Layout](#repository-layout).
+
+**Why Wazuh is listed under both SOC and EDR:** Wazuh is genuinely both a SIEM and an
+endpoint agent manager. `modules/EDR/wazuh/` re-exports the single
+`modules/SOC/wazuh/` implementation rather than duplicating it — see
+[modules/EDR/wazuh/README.md](modules/EDR/wazuh/README.md).
+
+## Installation
 
 ```bash
-# Clone repository
 git clone https://github.com/imharshitaa/toolkit.git
 cd toolkit
-
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Install ToolKit CLI
+python3 -m venv .venv
+source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -e .
+```
 
-# Verify installation
+Verify the install:
+
+```bash
 toolkit --version
-
-# Deploy your first tool (Splunk via Docker)
-toolkit deploy soc splunk --environment docker
-
-# Access Splunk Web UI at http://localhost:8000
-# Default credentials: admin / changeme
+toolkit status           # checks for docker, terraform, kubectl, ansible, aws-cli
+toolkit list-tools soc   # shows Splunk (implemented) + catalog entries
 ```
 
-## 📦 Installation
+Per-tool binaries (install only what you plan to use):
 
-### Prerequisites
+| Tool | Install |
+|---|---|
+| Docker (Splunk, Wazuh, ZAP) | https://docs.docker.com/get-docker/ |
+| nmap | `brew install nmap` / `apt install nmap` |
+| Trivy | `brew install trivy` / https://trivy.dev |
 
-- Python 3.8 or higher
-- Docker (for containerized deployments)
-- AWS CLI (for AWS deployments)
-- kubectl (for Kubernetes deployments)
-- Terraform (for infrastructure as code)
+IaC Auditor and LLM Risk Scanner need nothing beyond the base `pip install -e .`.
 
-### Install from Source
+## Usage
 
 ```bash
-git clone https://github.com/imharshitaa/toolkit.git
-cd toolkit
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-pip install -e .
+toolkit deploy <module> <tool> [--environment docker|local|aws|kubernetes] [--dry-run]
+toolkit scan   <module> <tool> --target <target> [--scan-type quick|full|stealth] [--simulate]
+toolkit report <module> <tool> [--format html|markdown] [--severity-filter high]
+toolkit open   <module> <tool>
 ```
 
-### Install via pip (coming soon)
+Examples:
 
 ```bash
-pip install toolkit-cybersec
+# Static scans — no deploy step, no credentials
+toolkit scan cloudsec iacauditor --target labs/
+toolkit scan aisec llmriskscanner --target /path/to/transcript.log
+
+# Local binary wrappers — need nmap/trivy installed
+toolkit scan netsec nmap --target 192.168.1.0/24 --scan-type quick
+toolkit scan vm trivy --target . --scan-type full
+
+# Dockerized services — need Docker
+toolkit deploy appsec zap
+toolkit scan appsec zap --target http://localhost:8081   # e.g. the DVWA lab target
+toolkit deploy soc wazuh
+toolkit scan soc wazuh                                    # health check, not a fresh deploy
+
+# Attack simulation (generates synthetic MITRE ATT&CK events)
+toolkit deploy soc splunk
+toolkit scan soc splunk --target localhost:8088 --simulate --scenario brute_force
+
+# Reports are built from the most recent real result for that tool
+toolkit report cloudsec iacauditor --format markdown
 ```
 
-## 🛠️ Supported Tools
+Targets outside RFC1918/loopback ranges are rejected by default on every active
+scan/simulate — pass `--i-have-authorization` only for systems you own or are
+explicitly authorized to test (see [Security Model](#security-model)).
 
-### SOC / SIEM
+## Security Model
 
-| Tool | Type | Description |
-|------|------|-------------|
-| **Splunk** | Enterprise | Leading SIEM platform |
-| **Microsoft Sentinel** | Cloud | Cloud-native SIEM |
-| **IBM QRadar** | Enterprise | Security analytics platform |
-| **Elastic** | Open Source | Elasticsearch-based SIEM |
-| **Wazuh** | Open Source | Open source security monitoring |
+- **No embedded credentials, anywhere.** AWS/Azure/GCP credentials are read strictly
+  from environment variables / the standard credential chain
+  (`toolkit/utils.py::get_cloud_credentials`) — never hardcoded, never stored by
+  ToolKit. AWS/Kubernetes deploys use *your own* `boto3`/`kubectl` credential chain,
+  exactly like the AWS CLI or `kubectl` itself.
+- **Target authorization guardrail.** `toolkit/security.py::require_authorized_target`
+  blocks nmap/ZAP/Trivy-image scans and Splunk attack simulations against anything
+  outside loopback + RFC1918 private ranges unless `--i-have-authorization` is passed
+  explicitly — and even then it logs a loud warning. Only test systems you own or
+  hold written permission to assess.
+- **No hardcoded lab secrets.** `labs/docker/docker-compose.yml` and
+  `labs/terraform/aws_lab.tf` require every password/token/CIDR as an explicit
+  input (`${VAR:?}` in Compose, no-default Terraform variables) — there is no
+  built-in `admin/admin` anywhere in this repo.
+- **Results aren't fabricated.** `toolkit report` reads the real JSON result of the
+  most recent `scan`/`simulate`/`deploy` from `.toolkit_state/` (gitignored). If
+  nothing has been run yet, it fails with a clear error instead of generating a
+  placeholder report.
+- **Untrusted tool output.** ZAP/nmap/Trivy output is parsed defensively (missing
+  fields default to safe placeholders); subprocess calls have explicit timeouts and
+  handle non-zero exit codes and missing binaries without crashing.
+- **Heuristic scanners are labeled as heuristic.** The IaC Auditor and LLM Risk
+  Scanner are documented as pattern matching, not certified detection — both their
+  `config.py` docstrings and this README say so explicitly.
 
-### EDR / XDR
+## Lab Environments
 
-| Tool | Type | Description |
-|------|------|-------------|
-| **CrowdStrike Falcon** | Enterprise | Cloud-native endpoint protection |
-| **SentinelOne** | Enterprise | AI-powered endpoint security |
-| **Microsoft Defender** | Enterprise | Endpoint detection and response |
-| **Wazuh** | Open Source | Open source EDR solution |
+- [`labs/docker/`](labs/docker/README.md) — Docker Compose stack for Splunk, ZAP,
+  Wazuh (manager + indexer + dashboard), and DVWA as a safe local scan target.
+- [`labs/terraform/`](labs/terraform/README.md) — standalone Terraform for a
+  single-instance Splunk deployment on AWS, plus GuardDuty/CloudTrail, with no
+  default admin CIDR or password.
 
-### Network Security
-
-| Tool | Type | Description |
-|------|------|-------------|
-| **Palo Alto** | Enterprise | Next-generation firewall |
-| **Fortinet** | Enterprise | FortiGate security appliance |
-| **Cisco Secure** | Enterprise | Network security solutions |
-| **OPNsense** | Open Source | Open source firewall |
-| **pfSense** | Open Source | FreeBSD-based firewall |
-
-### Application Security
-
-| Tool | Type | Description |
-|------|------|-------------|
-| **Burp Suite** | Enterprise | Web application security testing |
-| **OWASP ZAP** | Open Source | Penetration testing tool |
-| **Nuclei** | Open Source | Vulnerability scanner |
-| **Postman** | Tool | API security testing |
-
-### Cloud Security
-
-| Tool | Type | Description |
-|------|------|-------------|
-| **AWS GuardDuty** | Cloud | AWS threat detection |
-| **Security Hub** | Cloud | AWS security posture management |
-| **Prisma Cloud** | Enterprise | Palo Alto cloud security |
-| **Mandiant** | Enterprise | Google Cloud security |
-
-### Vulnerability Management
-
-| Tool | Type | Description |
-|------|------|-------------|
-| **Tenable Nessus** | Enterprise | Vulnerability scanner |
-| **Qualys** | Enterprise | Cloud-based VM platform |
-| **Rapid7** | Enterprise | Nexpose vulnerability management |
-| **OpenVAS** | Open Source | Open source scanner |
-
-## 💻 Usage
-
-### Basic Commands
+## Testing
 
 ```bash
-# Check system status and dependencies
-toolkit status
-
-# List available tools for a module
-toolkit list-tools soc
-toolkit list-tools edr
-toolkit list-tools appsec
-
-# Get help for any command
-toolkit --help
-toolkit deploy --help
-toolkit scan --help
+pip install -r requirements-dev.txt
+pytest -v
 ```
 
-### Deployment Examples
+**Actual result at last verification: 102 passed, 0 failed, 0 skipped.**
 
-#### Deploy Splunk (Docker)
-```bash
-toolkit deploy soc splunk --environment docker
-```
+What's covered and how — see [`tests/README.md`](tests/README.md) for the full
+breakdown, including what requires Docker/live binaries and isn't exercised by the
+unit suite (full Splunk/Wazuh Docker Compose stacks, live AWS/Kubernetes deploys).
 
-#### Deploy to AWS
-```bash
-toolkit deploy soc splunk \
-  --environment aws \
-  --region us-east-1 \
-  --instance-type t3.xlarge
-```
+## Verified Walkthrough
 
-#### Deploy to Kubernetes
-```bash
-toolkit deploy edr wazuh --environment kubernetes
-```
-
-#### Deploy with Custom Configuration
-```bash
-toolkit deploy soc splunk \
-  --config-file ./configs/splunk-prod.yaml \
-  --environment aws \
-  --auto-approve
-```
-
-### Scanning and Testing
-
-#### Run Application Security Scan
-```bash
-toolkit scan appsec zap \
-  --target https://example.com \
-  --scan-type full \
-  --output results.json
-```
-
-#### Run Vulnerability Scan
-```bash
-toolkit scan vm tenable \
-  --target 192.168.1.0/24 \
-  --scan-type compliance \
-  --format html
-```
-
-#### Run Attack Simulation
-```bash
-# Simulate MITRE ATT&CK techniques
-toolkit scan soc splunk \
-  --target localhost:8088 \
-  --simulate \
-  --scenario brute_force
-```
-
-### Report Generation
+Run end-to-end against this repo's own `labs/` directory — no deploy step, no
+external binary, no network access required:
 
 ```bash
-# Generate PDF security report
-toolkit report soc splunk \
-  --format pdf \
-  --template executive
+$ toolkit scan cloudsec iacauditor --target labs/
+Scanned 2 file(s), 0 finding(s)
+✓ Scan completed successfully!
 
-# Generate technical report with screenshots
-toolkit report appsec zap \
-  --format html \
-  --template technical \
-  --include-screenshots
-
-# Generate compliance report
-toolkit report vm tenable \
-  --format docx \
-  --compliance-framework nist \
-  --severity-filter critical
+$ toolkit report cloudsec iacauditor --format markdown
+Report saved to: reports/iacauditor_security_report_<timestamp>.md
 ```
 
-### Dashboard Access
+Zero findings here is the expected, correct result — `labs/docker/docker-compose.yml`
+and `labs/terraform/aws_lab.tf` were themselves fixed as part of this project to
+remove the public ingress rules and hardcoded secrets the auditor is built to catch
+(verified separately against an unfixed copy, which the auditor correctly flagged
+for `0.0.0.0/0` SSH ingress and a hardcoded `admin_password`).
 
-```bash
-# Open tool dashboard in browser
-toolkit open soc splunk
-toolkit open appsec zap
-toolkit open cloudsec guardduty
+For the Dockerized tools (ZAP, Splunk, Wazuh), see the exact commands in
+[Usage](#usage) and the per-module READMEs — live execution requires Docker, which
+is not available in every development environment (see
+[Known Limitations](#known-limitations)).
 
-# Print URL instead of opening browser
-toolkit open soc splunk --print-url
+## Known Limitations
 
-# Connect to custom host
-toolkit open soc splunk --host 192.168.1.10 --port 8000
-```
+Documented explicitly rather than silently skipped:
 
-## 🏗️ Architecture
+- **nmap and Trivy binaries**: not installed in every environment. Unit tests mock
+  `subprocess`/`shutil.which`; the actual binary output format is covered by the
+  parser tests (`tests/test_nmap.py`, `tests/test_trivy.py`), not a live scan.
+- **Docker-dependent live deploys** (ZAP daemon, Wazuh stack, Splunk Docker
+  deployment): require a working Docker daemon. In some environments (including
+  this project's primary development environment) Docker Desktop requires an
+  organizational sign-in that isn't available, so these paths are covered by
+  mocked integration tests (`tests/test_wazuh_deploy.py`, Docker SDK mocked), not
+  a live run. The code path itself is exercised; the live container lifecycle is
+  not.
+- **Full Splunk/Wazuh stacks**: multi-GB images, slow to bring up even when Docker
+  is available — covered by dry-run + mocked tests, not a live full-stack
+  deployment in CI.
+- **Live AWS/Kubernetes deploys**: require the operator's own cloud/cluster
+  credentials, which this project does not have or store. The `deploy_aws`/
+  `deploy_kubernetes` code paths are present and readable in
+  `modules/SOC/splunk/deploy.py`, but not exercised against a real account here.
+- **`toolkit scan --output`**: the CLI accepts this flag, but no module currently
+  writes raw results to it — every module persists its structured result via
+  `toolkit/state.py` regardless, which is what `toolkit report` actually reads.
+  Use `toolkit report` to get output, not `scan --output`.
 
-```
-toolkit/
-│
-├── toolkit/              # Core CLI engine
-│   ├── cli.py           # Main CLI entry point
-│   ├── core.py          # Execution engine
-│   ├── deploy.py        # Deployment logic
-│   ├── scan.py          # Scanning logic
-│   ├── report.py        # Report generation
-│   ├── open_dashboard.py # Dashboard opener
-│   └── utils.py         # Helper functions
-│
-├── modules/             # Security domain modules
-│   ├── SOC/            # SIEM tools
-│   │   ├── splunk/
-│   │   │   ├── config.py      # Configuration
-│   │   │   ├── deploy.py      # Deployment logic
-│   │   │   ├── simulate.py    # Attack simulation
-│   │   │   ├── detections.md  # Detection rules
-│   │   │   └── README.md      # Documentation
-│   │   ├── qradar/
-│   │   └── elastic/
-│   │
-│   ├── APPSEC/         # Application security
-│   ├── CLOUDSEC/       # Cloud security
-│   ├── NETSEC/         # Network security
-│   ├── EDR/            # Endpoint detection
-│   ├── VM/             # Vulnerability management
-│   └── AISEC/          # AI-powered security
-│
-└── labs/               # Lab environments
-    ├── docker/         # Docker Compose setups
-    ├── terraform/      # IaC templates
-    └── k8s/           # Kubernetes manifests
-```
-
-### Module Structure
-
-Each security tool follows a consistent structure:
+## Repository Layout
 
 ```
-tool_name/
-├── config.py         # Tool configuration
-├── deploy.py         # Deployment implementation
-├── simulate.py       # Attack/test simulation (optional)
-├── detections.md     # Detection rules (SIEM/EDR)
-└── README.md         # Tool-specific documentation
+toolkit/                  Core CLI and shared infrastructure (see architecture above)
+modules/
+  SOC/splunk/              modules/SOC/splunk/README.md
+  SOC/wazuh/               modules/SOC/wazuh/README.md
+  EDR/wazuh/               modules/EDR/wazuh/README.md   (delegates to SOC/wazuh)
+  NETSEC/nmap/             modules/NETSEC/nmap/README.md
+  APPSEC/zap/              modules/APPSEC/zap/README.md
+  VM/trivy/                modules/VM/trivy/README.md
+  CLOUDSEC/iacauditor/     modules/CLOUDSEC/iacauditor/README.md
+  AISEC/llmriskscanner/    modules/AISEC/llmriskscanner/README.md
+labs/
+  docker/                  labs/docker/README.md    (local Compose lab)
+  terraform/               labs/terraform/README.md (AWS Splunk lab)
+tests/                     tests/README.md          (how to run, what's covered)
+config.yaml                Global defaults (authorized networks, timeouts, reporting)
+setup.py / requirements*.txt
 ```
 
-## 🔬 Labs and Testing
+Every directory listed above has its own `README.md` with configuration and usage
+details scoped to that directory.
 
-### Docker Lab Environment
+## Roadmap
 
-```bash
-cd labs/docker
-docker-compose up -d
+Realistic near-term improvements, not aspirational claims:
 
-# Access services:
-# Splunk: http://localhost:8000
-# ZAP: http://localhost:8080
-# Wazuh: http://localhost:5601
-# Kibana: http://localhost:5602
-```
+1. **Wire `--output` through to each module** so raw JSON/XML tool output can be
+   saved directly, not just the derived report (currently accepted by the CLI but
+   unused — see [Known Limitations](#known-limitations)).
+2. **CI pipeline** (GitHub Actions) running `pytest` on every push — there is
+   currently no automated CI; tests are run manually.
+3. **A real end-to-end live-Docker test** once run in an environment where Docker
+   doesn't require organizational sign-in — deploy ZAP, scan DVWA, generate a
+   report, assert on the real alert content rather than mocked data.
 
-### AWS Infrastructure
+## Contributing
 
-```bash
-cd labs/terraform
-terraform init
-terraform plan
-terraform apply
+This is a personal portfolio project, not an actively maintained open-source
+project seeking contributions. Issues and pull requests may not receive a response.
+Feel free to fork it.
 
-# Outputs will show:
-# - Splunk public IP
-# - GuardDuty detector ID
-# - CloudTrail ARN
-```
+## License
 
-### Attack Simulation
-
-The toolkit includes built-in attack simulations based on MITRE ATT&CK:
-
-```bash
-# Brute force attack (T1110)
-toolkit scan soc splunk --simulate --scenario brute_force
-
-# Lateral movement (T1021)
-toolkit scan soc splunk --simulate --scenario lateral_movement
-
-# Data exfiltration (T1048)
-toolkit scan soc splunk --simulate --scenario data_exfiltration
-```
-
-## 🔧 Development
-
-### Setting Up Development Environment
-
-```bash
-# Clone repository
-git clone https://github.com/imharshitaa/toolkit.git
-cd toolkit
-
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate
-
-# Install in development mode
-pip install -e ".[dev]"
-
-# Install pre-commit hooks
-pre-commit install
-```
-
-### Running Tests
-
-```bash
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=toolkit --cov-report=html
-
-# Run specific test file
-pytest tests/test_cli.py -v
-
-# Run tests for a specific module
-pytest tests/test_cli.py::TestCLI::test_version_command
-```
-
-### Code Quality
-
-```bash
-# Format code
-black toolkit/ modules/ tests/
-
-# Lint code
-flake8 toolkit/ modules/ tests/
-
-# Type checking
-mypy toolkit/
-
-# Security scan
-bandit -r toolkit/
-```
-
-### Adding a New Tool
-
-1. Create module directory:
-```bash
-mkdir -p modules/MODULE_NAME/tool_name
-```
-
-2. Create required files:
-```bash
-touch modules/MODULE_NAME/tool_name/config.py
-touch modules/MODULE_NAME/tool_name/deploy.py
-touch modules/MODULE_NAME/tool_name/README.md
-```
-
-3. Implement `config.py`:
-```python
-def get_config(environment: str = 'docker') -> dict:
-    return {
-        'tool_config': {...},
-        'deployment': {...}
-    }
-
-def validate() -> bool:
-    # Validation logic
-    return True
-```
-
-4. Implement `deploy.py`:
-```python
-def execute(**kwargs) -> bool:
-    # Deployment logic
-    return True
-```
-
-5. Add tool to `core.py` in `get_available_tools()` function
-
-6. Test your implementation:
-```bash
-toolkit deploy module_name tool_name --dry-run
-```
-
-## 📚 Documentation
-
-- [Splunk Module Documentation](modules/SOC/splunk/README.md)
-- [ZAP Module Documentation](modules/APPSEC/zap/README.md)
-- [Detection Rules](modules/SOC/splunk/detections.md)
-- [Architecture Overview](docs/architecture.md)
-- [API Reference](docs/api.md)
-
-### Ways to Contribute
-
-- 🐛 Report bugs and issues
-- 💡 Suggest new features
-- 📝 Improve documentation
-- 🔧 Add new tool modules
-- ✅ Write tests
-
-### Development Workflow
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Run tests (`pytest`)
-5. Commit your changes (`git commit -m 'Add amazing feature'`)
-6. Push to the branch (`git push origin feature/amazing-feature`)
-7. Open a Pull Request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- MITRE ATT&CK Framework
-- OWASP Foundation
-- Splunk Community
-- All open-source security tool maintainers
-
-## Support
-
-- Issues: [GitHub Issues](https://github.com/imharshitaa/toolkit/issues)
-- Docs: [Documentation - wip]
-
-## 🗺️ Roadmap
-
-- [ ] Add support for more SIEM platforms (Sumo Logic, LogRhythm)
-- [ ] Implement SOAR integration (Tines, Shuffle, Phantom)
-- [ ] Add compliance frameworks (SOC 2, PCI-DSS, HIPAA)
-- [ ] Create web UI dashboard
-- [ ] Add API for programmatic access
-- [ ] Implement machine learning-based threat detection
-- [ ] Support for hybrid cloud deployments
-- [ ] Integration with threat intelligence feeds
-
----
-
-**Made by imharshitaa**
-
-⭐ Star on GitHub if you find this project useful!
+MIT — see [LICENSE](LICENSE).

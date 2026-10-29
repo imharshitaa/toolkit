@@ -2,52 +2,71 @@
 Splunk Deployment Module
 Handles Splunk deployment to various environments
 """
-import os
 import time
 from pathlib import Path
 from typing import Dict, Any
 import docker
 import boto3
+import botocore.exceptions
 from toolkit.utils import logger, run_command, ensure_directory
-from modules.SOC.splunk.config import get_config, SPLUNK_CONFIG
+from toolkit.state import save_result
+from modules.SOC.splunk.config import get_config, validate, SPLUNK_CONFIG
 
 def execute(**kwargs) -> bool:
     """
     Execute Splunk deployment
-    
+
     Args:
-        environment: Target environment (docker, aws, kubernetes)
-        config_file: Optional custom config file
+        environment: Target environment (docker, aws, kubernetes, local)
         dry_run: Simulate without executing
         region: AWS region for cloud deployment
         instance_type: EC2 instance type
-    
+
     Returns:
         bool: Success status
+
+    Note:
+        'aws' and 'kubernetes' environments use the caller's own AWS/kubeconfig
+        credential chain (same as the AWS CLI or kubectl) — ToolKit never stores
+        or embeds cloud credentials.
     """
     environment = kwargs.get('environment', 'docker')
     dry_run = kwargs.get('dry_run', False)
-    
+
     logger.info(f"Deploying Splunk to {environment}")
-    
+
     if dry_run:
         logger.info("DRY RUN MODE - Simulating deployment")
         return simulate_deployment(environment, kwargs)
-    
-    # Route to appropriate deployment method
+
+    if not validate(require_non_default_password=True):
+        return False
+
     deployment_methods = {
         'docker': deploy_docker,
         'local': deploy_local,
         'aws': deploy_aws,
         'kubernetes': deploy_kubernetes,
     }
-    
+
     deploy_func = deployment_methods.get(environment)
     if not deploy_func:
         logger.error(f"Unsupported environment: {environment}")
         return False
-    
-    return deploy_func(kwargs)
+
+    success = deploy_func(kwargs)
+    save_result('soc', 'splunk', 'deploy', {
+        'tool_name': 'Splunk Deployment',
+        'summary': f"Deployment to '{environment}' {'succeeded' if success else 'failed'}.",
+        'findings': [{
+            'title': f"{environment} deployment",
+            'description': 'Deployment completed successfully.' if success else 'Deployment failed — see logs.',
+            'severity': 'info' if success else 'high',
+        }],
+        'recommendations': [] if success else ['Re-run with --dry-run to validate configuration before retrying.'],
+        'environment': environment,
+    })
+    return success
 
 
 def deploy_docker(config: Dict[str, Any]) -> bool:
@@ -100,8 +119,8 @@ def deploy_docker(config: Dict[str, Any]) -> bool:
         if container.status == 'running':
             logger.info("✓ Splunk container is running")
             logger.info(f"Access Splunk at: http://localhost:{docker_config['ports']['8000']}")
-            logger.info(f"Username: admin")
-            logger.info(f"Password: {SPLUNK_CONFIG['admin_password']}")
+            logger.info("Username: admin")
+            logger.info("Password: value of the SPLUNK_PASSWORD environment variable used to deploy")
             return True
         else:
             logger.error(f"Container failed to start. Status: {container.status}")
@@ -155,24 +174,34 @@ def deploy_local(config: Dict[str, Any]) -> bool:
 
 
 def deploy_aws(config: Dict[str, Any]) -> bool:
-    """Deploy Splunk to AWS EC2"""
+    """
+    Deploy Splunk to AWS EC2.
+
+    Requires the caller's own AWS credentials (standard boto3 credential chain —
+    env vars, ~/.aws/credentials, or an instance role). ToolKit never stores or
+    embeds AWS credentials.
+
+    Note: the admin password is passed via EC2 user-data, which AWS exposes
+    through the instance metadata service to anything running on that instance.
+    This is a known limitation of user-data bootstrapping, not unique to
+    ToolKit — for production use, pull the password from AWS Secrets Manager
+    inside the instance instead of embedding it at launch.
+    """
     logger.info("Starting AWS deployment")
-    
+
     region = config.get('region', 'us-east-1')
     instance_type = config.get('instance_type', 't3.xlarge')
-    
+
     try:
         ec2 = boto3.client('ec2', region_name=region)
-        
-        # User data script for Splunk installation
+
         user_data_script = f"""#!/bin/bash
 wget -O splunk-9.1.0.tgz 'https://download.splunk.com/products/splunk/releases/9.1.0/linux/splunk-9.1.0-linux-x86_64.tgz'
 tar xzf splunk-9.1.0.tgz -C /opt/
 /opt/splunk/bin/splunk start --accept-license --answer-yes --no-prompt --seed-passwd {SPLUNK_CONFIG['admin_password']}
 /opt/splunk/bin/splunk enable boot-start
 """
-        
-        # Launch EC2 instance
+
         logger.info(f"Launching EC2 instance in {region}")
         response = ec2.run_instances(
             ImageId='ami-0c55b159cbfafe1f0',  # Amazon Linux 2
@@ -209,18 +238,29 @@ tar xzf splunk-9.1.0.tgz -C /opt/
         logger.info(f"Access Splunk at: http://{public_ip}:8000")
         
         return True
-        
+
+    except botocore.exceptions.NoCredentialsError:
+        logger.error(
+            "No AWS credentials found. Set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY "
+            "or configure ~/.aws/credentials — ToolKit uses your own AWS credential "
+            "chain and never stores credentials itself."
+        )
+        return False
     except Exception as e:
         logger.error(f"AWS deployment failed: {e}")
         return False
 
 
 def deploy_kubernetes(config: Dict[str, Any]) -> bool:
-    """Deploy Splunk to Kubernetes"""
+    """
+    Deploy Splunk to Kubernetes.
+
+    Requires the caller's own kubeconfig context (standard kubectl credential
+    chain) — ToolKit never stores or embeds cluster credentials.
+    """
     logger.info("Starting Kubernetes deployment")
-    
-    # Create Kubernetes manifest
-    manifest = """
+
+    manifest = f"""
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -251,7 +291,7 @@ spec:
         - name: SPLUNK_START_ARGS
           value: "--accept-license"
         - name: SPLUNK_PASSWORD
-          value: "changeme"
+          value: "{SPLUNK_CONFIG['admin_password']}"
 ---
 apiVersion: v1
 kind: Service

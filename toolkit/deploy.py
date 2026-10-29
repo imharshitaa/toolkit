@@ -16,9 +16,9 @@ core = ToolKitCore()
     'soc', 'edr', 'netsec', 'appsec', 'cloudsec', 'vm', 'aisec'
 ]))
 @click.argument('tool')
-@click.option('--environment', '-e', 
-              type=click.Choice(['local', 'aws', 'azure', 'gcp', 'docker', 'kubernetes']),
-              default='local',
+@click.option('--environment', '-e',
+              type=click.Choice(['local', 'docker', 'aws', 'kubernetes']),
+              default='docker',
               help='Deployment environment')
 @click.option('--config-file', '-c',
               type=click.Path(exists=True),
@@ -41,8 +41,8 @@ def deploy_command(module, tool, environment, config_file, dry_run,
     
     Examples:
         toolkit deploy soc splunk
-        toolkit deploy cloudsec guardduty --environment aws --region us-west-2
-        toolkit deploy edr crowdstrike --config-file ./custom-config.yaml
+        toolkit deploy soc wazuh --environment docker
+        toolkit deploy appsec zap --environment docker
     """
     
     # Display deployment info
@@ -63,18 +63,18 @@ def deploy_command(module, tool, environment, config_file, dry_run,
             return
         console.print("[green]✓ Configuration valid[/green]")
     
-    # Check dependencies for cloud deployments
-    if environment in ['aws', 'azure', 'gcp', 'kubernetes']:
+    # Check dependencies for cloud/cluster deployments. Note: deployments here go
+    # through boto3/kubectl directly, not Terraform — Terraform is only used for
+    # the standalone IaC in labs/terraform, applied separately by the operator.
+    if environment in ['aws', 'kubernetes']:
         console.print("\n[yellow]Checking dependencies...[/yellow]")
         deps = check_dependencies()
-        
+
         required_deps = {
-            'aws': ['aws-cli', 'terraform'],
-            'azure': ['terraform'],
-            'gcp': ['terraform'],
-            'kubernetes': ['kubectl', 'terraform']
+            'aws': [],  # boto3 handles AWS API calls directly; no CLI binary required
+            'kubernetes': ['kubectl'],
         }
-        
+
         for dep in required_deps.get(environment, []):
             if not deps.get(dep, {}).get('installed'):
                 console.print(f"[red]✗ Missing dependency: {dep}[/red]")

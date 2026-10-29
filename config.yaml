@@ -47,10 +47,8 @@ kubernetes:
 reporting:
   output_dir: ./reports
   formats:
-    - pdf
     - html
-    - json
-  include_screenshots: true
+    - markdown
   include_recommendations: true
 
 # Logging Configuration
@@ -65,6 +63,14 @@ security:
   ssl_verify: true
   api_timeout: 30
   max_concurrent_scans: 5
+  # Active scans and attack simulations are restricted to these ranges unless the
+  # caller passes --i-have-authorization. See toolkit/security.py.
+  authorized_networks:
+    - 127.0.0.0/8
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    - ::1/128
 
 # Feature Flags
 features:

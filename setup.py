@@ -34,14 +34,16 @@ setup(
         "pyyaml>=6.0",
         "jinja2>=3.0.0",
         "docker>=6.0.0",
-        "ansible>=7.0.0",
-        "terraform-py>=0.1.0",
-        "kubernetes>=25.0.0",
         "rich>=13.0.0",
-        "tabulate>=0.9.0",
-        "pytest>=7.0.0",
-        "pydantic>=2.0.0",
+        "python-dotenv>=1.0.0",
     ],
+    extras_require={
+        "dev": [
+            "pytest>=7.0.0",
+            "pytest-cov>=4.0.0",
+            "pytest-mock>=3.10.0",
+        ],
+    },
     entry_points={
         "console_scripts": [
             "toolkit=toolkit.cli:main",

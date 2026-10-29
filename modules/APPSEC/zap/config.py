@@ -23,7 +23,8 @@ DEPLOYMENT_CONFIG = {
             '8080': '8080',
             '8090': '8090',
         },
-        'command': 'zap.sh -daemon -host 0.0.0.0 -port 8080 -config api.key=toolkit-zap-key',
+        # Actual launch command is built at deploy time from ZAP_CONFIG['api_key']
+        # (see deploy.py) so the configured key is always the one actually used.
     },
     'local': {
         'install_path': '/opt/zaproxy',
@@ -76,15 +77,27 @@ REPORT_CONFIG = {
     'risk_levels': ['High', 'Medium', 'Low', 'Informational'],
 }
 
-def validate() -> bool:
-    """Validate ZAP configuration"""
+def validate(require_non_default_key: bool = False) -> bool:
+    """
+    Validate ZAP configuration before deploying a new daemon.
+
+    Args:
+        require_non_default_key: when True (live deploys), reject the
+            'toolkit-zap-key' placeholder so a real deployment never uses it.
+    """
     from toolkit.utils import logger, check_port_available
-    
-    # Check if port is available
+
+    if require_non_default_key and ZAP_CONFIG['api_key'] == 'toolkit-zap-key':
+        logger.error(
+            "Refusing to deploy with the default placeholder API key. "
+            "Set the ZAP_API_KEY environment variable to a real value first."
+        )
+        return False
+
     if not check_port_available(ZAP_CONFIG['port']):
         logger.warning(f"Port {ZAP_CONFIG['port']} is already in use")
         return False
-    
+
     return True
 
 def get_config(environment: str = 'docker') -> dict:

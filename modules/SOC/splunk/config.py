@@ -98,6 +98,9 @@ DATA_INPUTS = {
         'port': 8088,
         'token': os.getenv('SPLUNK_HEC_TOKEN', ''),
         'sourcetype': 'json',
+        # Local dev Splunk containers typically present a self-signed HEC cert.
+        # Defaults to verifying; set SPLUNK_HEC_VERIFY_SSL=false for local labs only.
+        'verify_ssl': os.getenv('SPLUNK_HEC_VERIFY_SSL', 'true').lower() != 'false',
     }
 }
 
@@ -119,21 +122,33 @@ SEARCH_CONFIG = {
 }
 
 
-def validate() -> bool:
-    """Validate Splunk configuration"""
+def validate(require_non_default_password: bool = False) -> bool:
+    """
+    Validate Splunk configuration.
+
+    Args:
+        require_non_default_password: when True (live, non-dry-run deploys),
+            reject the 'changeme' placeholder so a real deployment can never
+            go out with the documented default credential.
+    """
     from toolkit.utils import logger
-    
-    # Check password complexity
+
     if len(SPLUNK_CONFIG['admin_password']) < 8:
         logger.error("Admin password must be at least 8 characters")
         return False
-    
-    # Check license file if specified
+
+    if require_non_default_password and SPLUNK_CONFIG['admin_password'] == 'changeme':
+        logger.error(
+            "Refusing to deploy with the default placeholder password. "
+            "Set the SPLUNK_PASSWORD environment variable to a real value first."
+        )
+        return False
+
     if SPLUNK_CONFIG['license_file']:
         license_path = Path(SPLUNK_CONFIG['license_file'])
         if not license_path.exists():
             logger.warning(f"License file not found: {license_path}")
-    
+
     return True
 
 

@@ -62,17 +62,25 @@ def list_tools(module):
     from toolkit.core import get_available_tools
     
     tools = get_available_tools(module)
-    
+
     console.print(f"\n[bold cyan]Available tools for {module.upper()}:[/bold cyan]\n")
-    
+
     table = Table(show_header=True, header_style="bold magenta")
     table.add_column("Tool", style="cyan", width=20)
     table.add_column("Type", style="yellow", width=15)
+    table.add_column("Status", width=22)
     table.add_column("Description", style="white")
-    
+
     for tool in tools:
-        table.add_row(tool['name'], tool['type'], tool['description'])
-    
+        implemented = tool.get('status') == 'implemented'
+        status_style = "green" if implemented else "dim"
+        table.add_row(
+            tool['name'],
+            tool['type'],
+            f"[{status_style}]{tool.get('status', 'unknown')}[/{status_style}]",
+            tool['description'],
+        )
+
     console.print(table)
 
 # Register commands

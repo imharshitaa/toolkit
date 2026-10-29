@@ -1,15 +1,20 @@
 version: '3.8'
 
+# ToolKit local lab stack. Every credential below is read from environment
+# variables — copy .env.example to .env and set real values before running
+# `docker compose up`. Nothing here is a real external SaaS account; every
+# service is self-hosted and runs entirely on your machine.
+
 services:
-  # Splunk Enterprise
+  # Splunk Enterprise — SOC module backend
   splunk:
     image: splunk/splunk:latest
     container_name: splunk-enterprise
     hostname: splunk
     environment:
       - SPLUNK_START_ARGS=--accept-license
-      - SPLUNK_PASSWORD=toolkit2024
-      - SPLUNK_HEC_TOKEN=toolkit-hec-token
+      - SPLUNK_PASSWORD=${SPLUNK_PASSWORD:?Set SPLUNK_PASSWORD in your .env file}
+      - SPLUNK_HEC_TOKEN=${SPLUNK_HEC_TOKEN:?Set SPLUNK_HEC_TOKEN in your .env file}
     ports:
       - "8000:8000"   # Web UI
       - "8088:8088"   # HEC
@@ -22,28 +27,28 @@ services:
       - security-net
     restart: unless-stopped
 
-  # OWASP ZAP
+  # OWASP ZAP — AppSec module backend
   zap:
     image: owasp/zap2docker-stable
     container_name: zap-scanner
     hostname: zap
-    command: zap.sh -daemon -host 0.0.0.0 -port 8080 -config api.key=toolkit-zap-key
+    command: zap.sh -daemon -host 0.0.0.0 -port 8080 -config api.disablekey=false -config api.key=${ZAP_API_KEY:?Set ZAP_API_KEY in your .env file}
     ports:
-      - "8080:8080"   # ZAP UI
+      - "8080:8080"   # ZAP UI / API
       - "8090:8090"   # Proxy
     networks:
       - security-net
     restart: unless-stopped
 
-  # Wazuh Manager
+  # Wazuh Manager — SOC/EDR module backend
   wazuh:
     image: wazuh/wazuh:latest
     container_name: wazuh-manager
     hostname: wazuh
     environment:
       - INDEXER_URL=https://wazuh-indexer:9200
-      - INDEXER_USERNAME=admin
-      - INDEXER_PASSWORD=admin
+      - INDEXER_USERNAME=${WAZUH_INDEXER_USERNAME:?Set WAZUH_INDEXER_USERNAME in your .env file}
+      - INDEXER_PASSWORD=${WAZUH_INDEXER_PASSWORD:?Set WAZUH_INDEXER_PASSWORD in your .env file}
       - FILEBEAT_SSL_VERIFICATION_MODE=full
       - SSL_CERTIFICATE_AUTHORITIES=/etc/ssl/root-ca.pem
       - SSL_CERTIFICATE=/etc/ssl/filebeat.pem
@@ -81,53 +86,20 @@ services:
     container_name: wazuh-dashboard
     hostname: wazuh-dashboard
     environment:
-      - INDEXER_USERNAME=admin
-      - INDEXER_PASSWORD=admin
+      - INDEXER_USERNAME=${WAZUH_INDEXER_USERNAME:?Set WAZUH_INDEXER_USERNAME in your .env file}
+      - INDEXER_PASSWORD=${WAZUH_INDEXER_PASSWORD:?Set WAZUH_INDEXER_PASSWORD in your .env file}
       - WAZUH_API_URL=https://wazuh
-      - API_USERNAME=wazuh-wui
-      - API_PASSWORD=wazuh-wui
+      - API_USERNAME=${WAZUH_API_USERNAME:?Set WAZUH_API_USERNAME in your .env file}
+      - API_PASSWORD=${WAZUH_API_PASSWORD:?Set WAZUH_API_PASSWORD in your .env file}
     ports:
-      - "5601:5601"   # Kibana/Dashboard
+      - "5601:5601"   # Dashboard UI
     depends_on:
       - wazuh-indexer
     networks:
       - security-net
     restart: unless-stopped
 
-  # Elasticsearch (for ELK stack)
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
-    container_name: elasticsearch
-    hostname: elasticsearch
-    environment:
-      - discovery.type=single-node
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
-      - xpack.security.enabled=false
-    ports:
-      - "9200:9200"
-      - "9300:9300"
-    volumes:
-      - elastic-data:/usr/share/elasticsearch/data
-    networks:
-      - security-net
-    restart: unless-stopped
-
-  # Kibana
-  kibana:
-    image: docker.elastic.co/kibana/kibana:8.11.0
-    container_name: kibana
-    hostname: kibana
-    environment:
-      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-    ports:
-      - "5602:5601"
-    depends_on:
-      - elasticsearch
-    networks:
-      - security-net
-    restart: unless-stopped
-
-  # Vulnerable Web App for Testing (DVWA)
+  # DVWA — intentionally vulnerable app used as a safe, local ZAP scan target
   dvwa:
     image: vulnerables/web-dvwa
     container_name: dvwa
@@ -138,43 +110,12 @@ services:
       - security-net
     restart: unless-stopped
 
-  # Metasploitable (Vulnerable Target)
-  metasploitable:
-    image: tleemcjr/metasploitable2
-    container_name: metasploitable
-    hostname: metasploitable
-    ports:
-      - "2121:21"     # FTP
-      - "2222:22"     # SSH
-      - "2323:23"     # Telnet
-      - "8082:80"     # HTTP
-    networks:
-      - security-net
-    restart: unless-stopped
-
-  # Portainer (Container Management)
-  portainer:
-    image: portainer/portainer-ce:latest
-    container_name: portainer
-    hostname: portainer
-    ports:
-      - "9000:9000"
-      - "9443:9443"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - portainer-data:/data
-    networks:
-      - security-net
-    restart: unless-stopped
-
 volumes:
   splunk-etc:
   splunk-var:
   wazuh-config:
   wazuh-data:
   wazuh-indexer-data:
-  elastic-data:
-  portainer-data:
 
 networks:
   security-net:

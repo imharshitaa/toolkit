@@ -1,284 +1,275 @@
 """
-Splunk Attack Simulation Module
-Generate test events and simulate security scenarios
+Splunk Attack Simulation
+Generates synthetic security events aligned to MITRE ATT&CK techniques and
+delivers them to a Splunk HTTP Event Collector. Falls back to a local JSON
+event log when no HEC endpoint is reachable, so the simulation is useful even
+without a running Splunk instance.
 """
-import random
-import time
 import json
-import requests
+import random
 from datetime import datetime
-from typing import List, Dict, Any
-from toolkit.utils import logger
+from pathlib import Path
+from typing import Any, Dict, List, Tuple
 
-# MITRE ATT&CK Techniques to simulate
+import requests
+
+from toolkit.security import UnauthorizedTargetError, require_authorized_target
+from toolkit.state import save_result
+from toolkit.utils import logger
+from modules.SOC.splunk.config import DATA_INPUTS
+
+EVENT_LOG_DIR = Path(".toolkit_state") / "events"
+
 ATTACK_SCENARIOS = {
     'brute_force': {
         'technique_id': 'T1110',
         'technique_name': 'Brute Force',
         'tactic': 'Credential Access',
-        'events': 50
+        'events': 50,
     },
     'lateral_movement': {
         'technique_id': 'T1021',
         'technique_name': 'Remote Services',
         'tactic': 'Lateral Movement',
-        'events': 30
+        'events': 30,
     },
     'data_exfiltration': {
         'technique_id': 'T1048',
         'technique_name': 'Exfiltration Over Alternative Protocol',
         'tactic': 'Exfiltration',
-        'events': 20
+        'events': 20,
     },
     'privilege_escalation': {
         'technique_id': 'T1078',
         'technique_name': 'Valid Accounts',
         'tactic': 'Privilege Escalation',
-        'events': 15
+        'events': 15,
     },
     'persistence': {
         'technique_id': 'T1053',
         'technique_name': 'Scheduled Task/Job',
         'tactic': 'Persistence',
-        'events': 10
-    }
+        'events': 10,
+    },
 }
 
 
 def execute(**kwargs) -> bool:
     """
-    Execute attack simulation
-    
+    Run attack simulation scenarios and deliver the generated events.
+
     Args:
-        target: Splunk HEC endpoint
-        simulate: Type of simulation (all scenarios run if True)
-        scenario: Specific scenario to simulate
-        
+        target: Splunk HEC host:port (default localhost:8088)
+        scenario: scenario key from ATTACK_SCENARIOS, or 'all'
+        allow_unsafe: set True (via --i-have-authorization) to target hosts
+            outside private/loopback ranges
+
     Returns:
-        bool: Success status
+        bool: True if all requested scenarios ran (regardless of whether
+            delivery went to Splunk or the local fallback log)
     """
-    target = kwargs.get('target', 'localhost:8088')
+    target = kwargs.get('target') or 'localhost:8088'
     scenario = kwargs.get('scenario', 'all')
-    
-    logger.info("Starting Splunk attack simulation")
-    
-    # Determine which scenarios to run
+    allow_unsafe = kwargs.get('allow_unsafe', False)
+
+    try:
+        require_authorized_target(target, allow_unsafe=allow_unsafe)
+    except UnauthorizedTargetError as e:
+        logger.error(str(e))
+        return False
+
     if scenario == 'all':
-        scenarios_to_run = ATTACK_SCENARIOS.keys()
+        scenarios_to_run = list(ATTACK_SCENARIOS.keys())
+    elif scenario in ATTACK_SCENARIOS:
+        scenarios_to_run = [scenario]
     else:
-        scenarios_to_run = [scenario] if scenario in ATTACK_SCENARIOS else []
-    
-    if not scenarios_to_run:
         logger.error(f"Unknown scenario: {scenario}")
         return False
-    
-    # Run simulations
+
+    logger.info("Starting Splunk attack simulation")
+
+    findings = []
+    delivery_summary = []
     total_events = 0
+
     for scenario_name in scenarios_to_run:
         logger.info(f"Simulating: {scenario_name}")
-        events_count = simulate_scenario(scenario_name, target)
-        total_events += events_count
-        time.sleep(2)  # Delay between scenarios
-    
-    logger.info(f"✓ Simulation complete. Generated {total_events} events")
+        events = generate_events(scenario_name)
+        destination, location = deliver_events(events, target, scenario_name)
+        total_events += len(events)
+        delivery_summary.append(f"{scenario_name}: {len(events)} events -> {destination} ({location})")
+
+        config = ATTACK_SCENARIOS[scenario_name]
+        findings.append({
+            'title': f"{config['technique_name']} ({config['technique_id']})",
+            'description': (
+                f"Simulated {len(events)} '{scenario_name}' events for tactic "
+                f"'{config['tactic']}', delivered via {destination}."
+            ),
+            'severity': 'high' if scenario_name != 'brute_force' else 'medium',
+        })
+
+    logger.info(f"Simulation complete. Generated {total_events} events across {len(scenarios_to_run)} scenario(s)")
+
+    save_result('soc', 'splunk', 'simulate', {
+        'tool_name': 'Splunk Attack Simulation',
+        'summary': (
+            f"Ran {len(scenarios_to_run)} MITRE ATT&CK-aligned scenario(s) against {target}, "
+            f"generating {total_events} synthetic events."
+        ),
+        'findings': findings,
+        'recommendations': [
+            'Review delivery destinations below — events logged locally mean the '
+            'configured Splunk HEC endpoint was unreachable, not that detections fired.',
+            *delivery_summary,
+        ],
+        'target': target,
+        'total_events': total_events,
+    })
+
     return True
 
 
-def simulate_scenario(scenario: str, target: str) -> int:
-    """Simulate a specific attack scenario"""
-    scenario_config = ATTACK_SCENARIOS.get(scenario)
-    if not scenario_config:
-        return 0
-    
-    events_generated = 0
-    num_events = scenario_config['events']
-    
-    # Generate events based on scenario
-    if scenario == 'brute_force':
-        events_generated = simulate_brute_force(target, num_events)
-    elif scenario == 'lateral_movement':
-        events_generated = simulate_lateral_movement(target, num_events)
-    elif scenario == 'data_exfiltration':
-        events_generated = simulate_data_exfiltration(target, num_events)
-    elif scenario == 'privilege_escalation':
-        events_generated = simulate_privilege_escalation(target, num_events)
-    elif scenario == 'persistence':
-        events_generated = simulate_persistence(target, num_events)
-    
-    logger.info(f"  Generated {events_generated} {scenario} events")
-    return events_generated
+def generate_events(scenario: str) -> List[Dict[str, Any]]:
+    """Generate synthetic events for one scenario."""
+    config = ATTACK_SCENARIOS[scenario]
+    count = config['events']
+    generators = {
+        'brute_force': _brute_force_events,
+        'lateral_movement': _lateral_movement_events,
+        'data_exfiltration': _data_exfiltration_events,
+        'privilege_escalation': _privilege_escalation_events,
+        'persistence': _persistence_events,
+    }
+    return generators[scenario](count)
 
 
-def simulate_brute_force(target: str, count: int) -> int:
-    """Simulate brute force authentication attempts"""
-    events = []
-    
+def _brute_force_events(count: int) -> List[Dict[str, Any]]:
     usernames = ['admin', 'root', 'user', 'administrator', 'service_account']
-    source_ips = [
-        '192.168.1.' + str(random.randint(100, 200)),
-        '10.0.0.' + str(random.randint(1, 50)),
-        '172.16.0.' + str(random.randint(1, 100))
-    ]
-    
-    for i in range(count):
-        event = {
-            'timestamp': datetime.now().isoformat(),
-            'event_type': 'authentication',
-            'action': 'login_failed',
-            'username': random.choice(usernames),
-            'source_ip': random.choice(source_ips),
-            'destination_ip': '192.168.1.10',
-            'protocol': 'ssh',
-            'mitre_technique': 'T1110',
-            'severity': 'medium'
-        }
-        events.append(event)
-        time.sleep(0.1)
-    
-    # Send to Splunk (mock for now)
-    logger.debug(f"Would send {len(events)} brute force events to {target}")
-    return len(events)
+    source_ips = ['192.168.1.' + str(random.randint(100, 200)),
+                  '10.0.0.' + str(random.randint(1, 50)),
+                  '172.16.0.' + str(random.randint(1, 100))]
+    return [{
+        'timestamp': datetime.now().isoformat(),
+        'event_type': 'authentication',
+        'action': 'login_failed',
+        'username': random.choice(usernames),
+        'source_ip': random.choice(source_ips),
+        'destination_ip': '192.168.1.10',
+        'protocol': 'ssh',
+        'mitre_technique': 'T1110',
+        'severity': 'medium',
+    } for _ in range(count)]
 
 
-def simulate_lateral_movement(target: str, count: int) -> int:
-    """Simulate lateral movement across network"""
-    events = []
-    
+def _lateral_movement_events(count: int) -> List[Dict[str, Any]]:
     hosts = ['workstation-01', 'server-02', 'db-server', 'file-server']
     protocols = ['RDP', 'SMB', 'WinRM', 'SSH']
-    
-    for i in range(count):
-        event = {
-            'timestamp': datetime.now().isoformat(),
-            'event_type': 'network_connection',
-            'action': 'connection_established',
-            'source_host': random.choice(hosts),
-            'destination_host': random.choice([h for h in hosts]),
-            'protocol': random.choice(protocols),
-            'source_user': 'compromised_user',
-            'mitre_technique': 'T1021',
-            'severity': 'high'
-        }
-        events.append(event)
-        time.sleep(0.1)
-    
-    logger.debug(f"Would send {len(events)} lateral movement events to {target}")
-    return len(events)
+    return [{
+        'timestamp': datetime.now().isoformat(),
+        'event_type': 'network_connection',
+        'action': 'connection_established',
+        'source_host': random.choice(hosts),
+        'destination_host': random.choice(hosts),
+        'protocol': random.choice(protocols),
+        'source_user': 'compromised_user',
+        'mitre_technique': 'T1021',
+        'severity': 'high',
+    } for _ in range(count)]
 
 
-def simulate_data_exfiltration(target: str, count: int) -> int:
-    """Simulate data exfiltration attempts"""
-    events = []
-    
+def _data_exfiltration_events(count: int) -> List[Dict[str, Any]]:
     external_ips = ['8.8.8.8', '1.1.1.1', '23.45.67.89', '198.51.100.42']
     protocols = ['DNS', 'HTTP', 'FTP', 'HTTPS']
-    
-    for i in range(count):
-        event = {
-            'timestamp': datetime.now().isoformat(),
-            'event_type': 'network_traffic',
-            'action': 'outbound_connection',
-            'source_ip': '192.168.1.100',
-            'destination_ip': random.choice(external_ips),
-            'protocol': random.choice(protocols),
-            'bytes_out': random.randint(1000000, 100000000),
-            'mitre_technique': 'T1048',
-            'severity': 'critical'
-        }
-        events.append(event)
-        time.sleep(0.1)
-    
-    logger.debug(f"Would send {len(events)} exfiltration events to {target}")
-    return len(events)
+    return [{
+        'timestamp': datetime.now().isoformat(),
+        'event_type': 'network_traffic',
+        'action': 'outbound_connection',
+        'source_ip': '192.168.1.100',
+        'destination_ip': random.choice(external_ips),
+        'protocol': random.choice(protocols),
+        'bytes_out': random.randint(1000000, 100000000),
+        'mitre_technique': 'T1048',
+        'severity': 'critical',
+    } for _ in range(count)]
 
 
-def simulate_privilege_escalation(target: str, count: int) -> int:
-    """Simulate privilege escalation attempts"""
-    events = []
-    
+def _privilege_escalation_events(count: int) -> List[Dict[str, Any]]:
     techniques = ['sudo', 'setuid', 'token_impersonation', 'scheduled_task']
-    
-    for i in range(count):
-        event = {
-            'timestamp': datetime.now().isoformat(),
-            'event_type': 'process_creation',
-            'action': 'privilege_escalation',
-            'user': 'low_priv_user',
-            'target_user': 'root',
-            'technique': random.choice(techniques),
-            'command': '/bin/bash -i',
-            'mitre_technique': 'T1078',
-            'severity': 'high'
-        }
-        events.append(event)
-        time.sleep(0.1)
-    
-    logger.debug(f"Would send {len(events)} privilege escalation events to {target}")
-    return len(events)
+    return [{
+        'timestamp': datetime.now().isoformat(),
+        'event_type': 'process_creation',
+        'action': 'privilege_escalation',
+        'user': 'low_priv_user',
+        'target_user': 'root',
+        'technique': random.choice(techniques),
+        'command': '/bin/bash -i',
+        'mitre_technique': 'T1078',
+        'severity': 'high',
+    } for _ in range(count)]
 
 
-def simulate_persistence(target: str, count: int) -> int:
-    """Simulate persistence mechanism creation"""
-    events = []
-    
+def _persistence_events(count: int) -> List[Dict[str, Any]]:
     mechanisms = ['cron_job', 'systemd_service', 'registry_run_key', 'startup_script']
-    
-    for i in range(count):
-        event = {
-            'timestamp': datetime.now().isoformat(),
-            'event_type': 'persistence',
-            'action': 'persistence_created',
-            'mechanism': random.choice(mechanisms),
-            'file_path': '/etc/cron.d/malicious_job',
-            'user': 'attacker',
-            'mitre_technique': 'T1053',
-            'severity': 'high'
-        }
-        events.append(event)
-        time.sleep(0.1)
-    
-    logger.debug(f"Would send {len(events)} persistence events to {target}")
-    return len(events)
+    return [{
+        'timestamp': datetime.now().isoformat(),
+        'event_type': 'persistence',
+        'action': 'persistence_created',
+        'mechanism': random.choice(mechanisms),
+        'file_path': '/etc/cron.d/malicious_job',
+        'user': 'attacker',
+        'mitre_technique': 'T1053',
+        'severity': 'high',
+    } for _ in range(count)]
 
 
-def send_to_splunk_hec(events: List[Dict], hec_url: str, hec_token: str) -> bool:
+def deliver_events(events: List[Dict[str, Any]], target: str, scenario: str) -> Tuple[str, str]:
     """
-    Send events to Splunk HTTP Event Collector
-    
-    Args:
-        events: List of event dictionaries
-        hec_url: Splunk HEC endpoint URL
-        hec_token: HEC authentication token
-        
+    Attempt to deliver events to Splunk HEC; fall back to a local JSON log if
+    the endpoint is unreachable or misconfigured.
+
     Returns:
-        bool: Success status
+        (destination, location) where destination is 'splunk_hec' or 'local_log'.
     """
+    hec_token = DATA_INPUTS['http']['token']
+    verify_ssl = DATA_INPUTS['http'].get('verify_ssl', True)
+
+    if hec_token:
+        hec_url = f"https://{target}/services/collector/event"
+        if send_to_splunk_hec(events, hec_url, hec_token, verify=verify_ssl):
+            return 'splunk_hec', hec_url
+        logger.warning(f"Splunk HEC at {hec_url} unreachable or rejected events; falling back to local log")
+    else:
+        logger.warning("SPLUNK_HEC_TOKEN not set; writing events to local log instead of Splunk")
+
+    log_path = write_local_event_log(events, scenario)
+    return 'local_log', str(log_path)
+
+
+def write_local_event_log(events: List[Dict[str, Any]], scenario: str) -> Path:
+    """Persist generated events to a local JSON file as a safe fallback sink."""
+    EVENT_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    path = EVENT_LOG_DIR / f"splunk_simulate_{scenario}_{datetime.now().strftime('%Y%m%dT%H%M%S')}.json"
+    with open(path, 'w') as f:
+        json.dump(events, f, indent=2, default=str)
+    return path
+
+
+def send_to_splunk_hec(events: List[Dict], hec_url: str, hec_token: str, verify: bool = True) -> bool:
+    """Send events to a Splunk HTTP Event Collector endpoint."""
     headers = {
         'Authorization': f'Splunk {hec_token}',
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
     }
-    
+
     try:
         for event in events:
-            payload = {
-                'event': event,
-                'sourcetype': 'toolkit:simulation',
-                'index': 'security'
-            }
-            
-            response = requests.post(
-                hec_url,
-                headers=headers,
-                json=payload,
-                verify=False
-            )
-            
+            payload = {'event': event, 'sourcetype': 'toolkit:simulation', 'index': 'security'}
+            response = requests.post(hec_url, headers=headers, json=payload, verify=verify, timeout=5)
             if response.status_code != 200:
-                logger.warning(f"Failed to send event: {response.text}")
+                logger.warning(f"HEC rejected event (status {response.status_code})")
                 return False
-        
         return True
-        
-    except Exception as e:
-        logger.error(f"Failed to send events to Splunk: {e}")
+    except requests.exceptions.RequestException as e:
+        logger.debug(f"HEC delivery failed: {e}")
         return False

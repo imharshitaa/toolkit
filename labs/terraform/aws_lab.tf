@@ -38,6 +38,17 @@ variable "splunk_instance_type" {
   default     = "t3.xlarge"
 }
 
+variable "admin_cidr" {
+  description = "CIDR block allowed to reach SSH, the Splunk Web UI, and the HTTP Event Collector (e.g. \"203.0.113.4/32\" for your own IP). Must be set explicitly — there is no default, since a wide-open default here would defeat the purpose of restricting it."
+  type        = string
+}
+
+variable "splunk_password" {
+  description = "Initial admin password for Splunk Enterprise. Must be set explicitly (e.g. via TF_VAR_splunk_password or a .tfvars file that is never committed) — there is no default."
+  type        = string
+  sensitive   = true
+}
+
 # VPC Configuration
 resource "aws_vpc" "security_lab" {
   cidr_block           = var.vpc_cidr
@@ -117,7 +128,7 @@ resource "aws_security_group" "splunk" {
     from_port   = 8000
     to_port     = 8000
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.admin_cidr]
     description = "Splunk Web UI"
   }
 
@@ -144,7 +155,7 @@ resource "aws_security_group" "splunk" {
     from_port   = 8088
     to_port     = 8088
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.admin_cidr]
     description = "HTTP Event Collector"
   }
 
@@ -153,7 +164,7 @@ resource "aws_security_group" "splunk" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.admin_cidr]
     description = "SSH"
   }
 
@@ -216,8 +227,13 @@ resource "aws_instance" "splunk" {
     volume_type = "gp3"
   }
 
+  # NOTE: user_data is stored in plaintext in the EC2 instance's metadata and
+  # in Terraform state, so the password is only as protected as those are.
+  # This is a known limitation of user-data bootstrapping; for anything
+  # beyond a disposable lab, provision the password via AWS Secrets Manager
+  # instead and fetch it at boot time.
   user_data = templatefile("${path.module}/scripts/splunk_install.sh", {
-    splunk_password = "ToolKit2024!"
+    splunk_password = var.splunk_password
   })
 
   tags = {
