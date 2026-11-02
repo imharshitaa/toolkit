@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ToolKit — Interactive Security CLI Showcase</title>
+<meta name="description" content="ToolKit is a single CLI that deploys, scans, and reports across real open-source security tools — Splunk, Wazuh, OWASP ZAP, nmap, Trivy, and two pure-Python static scanners. Explore its real command surface interactively.">
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="scan-overlay" aria-hidden="true"></div>
+
+<header class="site-header" id="top">
+  <div class="header-inner">
+    <a class="brand" href="#top">
+      <span class="brand-glyph">&gt;_</span>
+      <span class="brand-text">ToolKit<span class="cursor">_</span></span>
+    </a>
+
+    <nav class="main-nav" id="main-nav">
+      <a href="#overview" class="nav-link">Overview</a>
+      <a href="#explorer" class="nav-link">Explorer</a>
+      <a href="#architecture" class="nav-link">Architecture</a>
+      <a href="#console" class="nav-link">Console</a>
+      <a href="#reports" class="nav-link">Reports</a>
+      <a href="#security" class="nav-link">Security</a>
+      <a href="#testing" class="nav-link">Testing</a>
+      <a href="#limitations" class="nav-link">Limitations</a>
+    </nav>
+
+    <div class="header-cta">
+      <a class="btn btn-ghost" href="https://github.com/imharshitaa/toolkit" target="_blank" rel="noopener">GitHub</a>
+      <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- HERO -->
+  <section class="hero" id="hero">
+    <div class="hero-grid" aria-hidden="true"></div>
+    <div class="container hero-inner">
+      <div class="hero-copy reveal">
+        <p class="eyebrow"><span class="dot"></span> Security engineering portfolio project</p>
+        <h1>ToolKit</h1>
+        <p class="tagline">A command-line framework for deploying, scanning, and reporting
+          across open-source security tooling — no third-party SaaS credentials required.</p>
+        <p class="hero-sub">One CLI drives real security tools — Splunk, Wazuh, OWASP ZAP, nmap,
+          Trivy, plus two pure-Python static scanners — through a single consistent
+          <code>deploy</code> / <code>scan</code> / <code>report</code> interface. Every result is
+          backed by real tool output, persisted to disk, and rendered into an HTML or Markdown report.</p>
+
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="https://github.com/imharshitaa/toolkit" target="_blank" rel="noopener">
+            View on GitHub
+          </a>
+          <a class="btn btn-outline" href="#console">Open the command console ↓</a>
+        </div>
+
+        <div class="hero-badges">
+          <span class="badge">Python 3.8+</span>
+          <span class="badge">MIT License</span>
+          <span class="badge badge-accent">102 tests passing</span>
+        </div>
+      </div>
+
+      <div class="hero-terminal reveal" style="--delay:120ms">
+        <div class="term-chrome">
+          <span class="term-dot dot-red"></span>
+          <span class="term-dot dot-yellow"></span>
+          <span class="term-dot dot-green"></span>
+          <span class="term-title">zsh — toolkit</span>
+        </div>
+        <pre class="term-body" id="hero-typer" aria-label="Terminal demo"></pre>
+      </div>
+    </div>
+  </section>
+
+  <p class="showcase-note container">
+    <strong>This is a static project showcase, not a hosted CLI.</strong> The sections below —
+    the command console, sample reports, and authorization checker — are interactive
+    demonstrations built from the real Python source. Nothing here executes a scan, deploys a
+    container, or calls a network. Every generated command is meant to be copied and run against
+    your own clone of <a href="https://github.com/imharshitaa/toolkit" target="_blank" rel="noopener">the real repository</a>.
+  </p>
+
+  <!-- OVERVIEW -->
+  <section class="section" id="overview">
+    <div class="container">
+      <h2 class="section-title reveal"><span class="tag">01</span> Overview</h2>
+      <div class="overview-grid">
+        <div class="reveal">
+          <h3>What ToolKit does</h3>
+          <p>ToolKit is a single CLI (<code>toolkit</code>) that drives real security tools through
+            one consistent interface. Instead of juggling five different tool invocations and five
+            different report formats, a security engineer runs the same four verbs —
+            <code>deploy</code>, <code>scan</code>, <code>report</code>, <code>open</code> — against
+            any supported domain and tool, and gets back a persisted, real result every time.</p>
+          <p>The CLI also catalogs roughly 19 enterprise security products (CrowdStrike, Microsoft
+            Sentinel, AWS GuardDuty, Tenable, Qualys, and others) for domain-coverage reference via
+            <code>toolkit list-tools</code>. Those are commercial SaaS products by definition and
+            require the vendor's own account — so they're listed for context, not reimplemented.</p>
+        </div>
+        <div class="reveal" style="--delay:100ms">
+          <h3>The problem it solves</h3>
+          <p>Standing up a local SOC/AppSec/NetSec lab usually means learning five separate tool
+            CLIs, five separate output formats, and writing one-off glue scripts to turn raw tool
+            output into something reviewable. ToolKit collapses that into one command surface:
+            spin up Splunk or Wazuh, run a ZAP scan against a local target, sweep a subnet with
+            nmap, scan a container image with Trivy, or statically audit Terraform / Docker Compose
+            and LLM transcripts for common misconfigurations — all through the same interface,
+            all producing a report from the same pipeline.</p>
+          <p class="who-for"><strong>Who it's for:</strong> security engineers who want one CLI to
+            drive a local security lab without re-learning tooling for every domain.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- EXPLORER: domains + tools, interactive -->
+  <section class="section section-alt" id="explorer">
+    <div class="container">
+      <h2 class="section-title reveal"><span class="tag">02</span> Domain &amp; Tool Explorer</h2>
+      <p class="section-lede reveal">ToolKit organizes tooling across seven domains. Select a
+        domain to see its tools — <span class="legend-dot legend-implemented"></span> implemented
+        (real output) vs. <span class="legend-dot legend-catalog"></span> catalog-only (requires a
+        vendor account). Click an implemented tool to load it straight into the command console.</p>
+
+      <div class="domain-tabs" id="domain-tabs" role="tablist"></div>
+      <div class="tool-grid" id="tool-grid"></div>
+      <div class="tool-detail" id="tool-detail" hidden></div>
+    </div>
+  </section>
+
+  <!-- ARCHITECTURE -->
+  <section class="section" id="architecture">
+    <div class="container">
+      <h2 class="section-title reveal"><span class="tag">03</span> Architecture</h2>
+      <p class="section-lede reveal">A thin CLI layer routes to a shared core engine, which
+        dynamically loads per-tool modules built on common infrastructure.</p>
+
+      <div class="arch-layout">
+        <div class="term-window reveal">
+          <div class="term-chrome">
+            <span class="term-dot dot-red"></span>
+            <span class="term-dot dot-yellow"></span>
+            <span class="term-dot dot-green"></span>
+            <span class="term-title">architecture.txt</span>
+          </div>
+          <pre class="term-body arch-diagram">toolkit/cli.py          ← click command group (version, status, list-tools)
+  ├── toolkit/deploy.py  ← `toolkit deploy &lt;module&gt; &lt;tool&gt;`
+  ├── toolkit/scan.py    ← `toolkit scan &lt;module&gt; &lt;tool&gt;` (--simulate for attack sims)
+  ├── toolkit/report.py  ← `toolkit report &lt;module&gt; &lt;tool&gt;`
+  └── toolkit/open_dashboard.py  ← `toolkit open &lt;module&gt; &lt;tool&gt;`
+        │
+        ▼
+  toolkit/core.py (ToolKitCore)
+    - dynamically imports modules.&lt;DOMAIN&gt;.&lt;tool&gt;.&lt;operation&gt;
+    - every operation module exposes execute(**kwargs) -&gt; bool
+        │
+        ▼
+  modules/&lt;DOMAIN&gt;/&lt;tool&gt;/
+    config.py    ← settings + validate()
+    deploy.py    ← for tools with a deployable backend
+    scan.py       } one or more operations, each calling
+    simulate.py   } toolkit.state.save_result() on completion
+    report.py    ← thin wrapper: load_latest_result() + render_report()
+        │
+        ▼
+  Shared infrastructure (toolkit/):
+    security.py   ← require_authorized_target() — blocks active scans/sims
+                    against anything outside RFC1918 + loopback unless
+                    --i-have-authorization is passed
+    state.py      ← persists every run's result to .toolkit_state/*.json
+    reporting.py  ← renders persisted state into HTML or Markdown</pre>
+        </div>
+
+        <div class="arch-cards">
+          <div class="arch-card reveal">
+            <h4>CLI layer</h4>
+            <p>A Click command group exposes <code>version</code>, <code>status</code>,
+              <code>list-tools</code>, and the four verbs — <code>deploy</code>, <code>scan</code>,
+              <code>report</code>, <code>open</code> — each a thin entry point into the core.</p>
+          </div>
+          <div class="arch-card reveal" style="--delay:80ms">
+            <h4>Core engine</h4>
+            <p><code>ToolKitCore</code> dynamically imports <code>modules.&lt;DOMAIN&gt;.&lt;tool&gt;.&lt;operation&gt;</code>
+              — every operation module exposes a single <code>execute(**kwargs) -&gt; bool</code>
+              contract, so adding a tool means adding a module, not touching the core. If an
+              operation module doesn't exist for a tool (e.g. a bare <code>scan</code> for Splunk,
+              which only has <code>simulate.py</code>), the import fails and the command reports
+              an error — the console below reproduces that exact failure path.</p>
+          </div>
+          <div class="arch-card reveal" style="--delay:160ms">
+            <h4>Modules</h4>
+            <p>Each <code>modules/&lt;DOMAIN&gt;/&lt;tool&gt;/</code> directory owns its
+              <code>config.py</code>, <code>deploy.py</code>, <code>scan.py</code> /
+              <code>simulate.py</code>, and <code>report.py</code> — plus its own README with
+              tool-specific configuration and usage.</p>
+          </div>
+          <div class="arch-card reveal" style="--delay:240ms">
+            <h4>Shared infrastructure</h4>
+            <p><code>security.py</code> enforces the authorization guardrail,
+              <code>state.py</code> persists every run's result to <code>.toolkit_state/</code>,
+              and <code>reporting.py</code> renders that persisted state into HTML or Markdown.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- COMMAND CONSOLE -->
+  <section class="section section-alt" id="console">
+    <div class="container">
+      <h2 class="section-title reveal"><span class="tag">04</span> Command Console</h2>
+      <p class="section-lede reveal">Build a real <code>toolkit</code> invocation using the exact
+        flags, choices, and defaults defined in <code>toolkit/deploy.py</code>,
+        <code>scan.py</code>, <code>report.py</code>, and <code>open_dashboard.py</code>. Copy the
+        command and run it yourself — or preview a clearly labeled simulated output first.</p>
+
+      <div class="preset-row" id="preset-row"></div>
+
+      <div class="console-layout">
+        <div class="console-controls reveal">
+          <div class="control-group">
+            <label for="sel-module">Module</label>
+            <select id="sel-module"></select>
+          </div>
+          <div class="control-group">
+            <label for="sel-tool">Tool</label>
+            <select id="sel-tool"></select>
+          </div>
+          <div class="control-group">
+            <label>Operation</label>
+            <div class="op-tabs" id="op-tabs" role="tablist"></div>
+          </div>
+
+          <div id="flag-form" class="flag-form"></div>
+        </div>
+
+        <div class="console-output reveal" style="--delay:100ms">
+          <div class="term-window">
+            <div class="term-chrome">
+              <span class="term-dot dot-red"></span>
+              <span class="term-dot dot-yellow"></span>
+              <span class="term-dot dot-green"></span>
+              <span class="term-title">zsh — generated command</span>
+            </div>
+            <pre class="term-body" id="generated-command"></pre>
+            <div class="term-actions">
+              <button class="btn btn-small btn-primary" id="copy-command">Copy command</button>
+              <button class="btn btn-small btn-outline" id="run-simulated">Preview simulated output ▸</button>
+              <span class="copy-feedback" id="copy-feedback" aria-live="polite"></span>
+            </div>
+          </div>
+
+          <div class="sim-panel" id="sim-panel" hidden>
+            <div class="sim-banner">
+              ⚠ SIMULATED DEMO OUTPUT — nothing executed. This illustrates what the real CLI
+              would print, built from its actual Rich console formatting and sample data.
+            </div>
+            <pre class="term-body sim-body" id="sim-body"></pre>
+            <p class="sim-run-locally">To actually run this: install ToolKit locally (see
+              <a href="https://github.com/imharshitaa/toolkit#installation" target="_blank" rel="noopener">Installation</a>)
+              and paste the copied command into your terminal.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SAMPLE REPORTS -->
+  <section class="section" id="reports">
+    <div class="container">
+      <h2 class="section-title reveal"><span class="tag">05</span> Sample Report Preview</h2>
+      <p class="section-lede reveal">Reports are rendered by <code>toolkit/reporting.py</code> from
+        whatever tool is selected in the console above. This preview uses the exact HTML/Markdown
+        templates from that file, populated with illustrative sample findings so you can see the
+        structure before running a real scan.</p>
+
+      <div class="report-controls reveal">
+        <span class="report-target-label">Previewing: <strong id="report-tool-label">—</strong></span>
+        <div class="format-toggle" id="format-toggle">
+          <button class="format-btn active" data-format="html">HTML</button>
+          <button class="format-btn" data-format="markdown">Markdown</button>
+        </div>
+      </div>
+
+      <div class="report-preview reveal" style="--delay:100ms">
+        <div class="sim-banner">
+          ⚠ SAMPLE REPORT — illustrative findings, not a live scan result. Real reports are built
+          from <code>.toolkit_state/*.json</code>, written only after a real <code>scan</code>,
+          <code>simulate</code>, or <code>deploy</code> run.
+        </div>
+        <iframe id="report-frame-html" class="report-frame" title="Sample HTML report preview"></iframe>
+        <pre class="term-body report-markdown" id="report-frame-md" hidden></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section class="section section-alt" id="features">
+    <div class="container">
+      <h2 class="section-title reveal"><span class="tag">06</span> Features</h2>
+      <div class="feature-grid">
+        <div class="feature-card reveal">
+          <span class="feature-icon">⇪</span>
+          <h4>Deploy</h4>
+          <p>Stand up a tool's backend — Docker Compose stacks for Splunk/Wazuh/ZAP, or
+            cloud/Kubernetes paths using your own credential chain. <code>--dry-run</code> is
+            supported for a no-op preview.</p>
+        </div>
+        <div class="feature-card reveal" style="--delay:80ms">
+          <span class="feature-icon">◎</span>
+          <h4>Scan</h4>
+          <p>Run a real scan — nmap sweep, Trivy image/filesystem scan, ZAP spider + active scan,
+            or a static IaC/LLM-transcript audit — and persist the structured result.</p>
+        </div>
+        <div class="feature-card reveal" style="--delay:160ms">
+          <span class="feature-icon">▤</span>
+          <h4>Report</h4>
+          <p>Render the most recent real result for a tool into an HTML or Markdown report, with
+            optional severity filtering. No result on disk means a clear error, never a
+            placeholder.</p>
+        </div>
+        <div class="feature-card reveal" style="--delay:240ms">
+          <span class="feature-icon">⛨</span>
+          <h4>Security guardrails</h4>
+          <p>Active scans and simulations are blocked against anything outside loopback + RFC1918
+            private ranges by default — <code>--i-have-authorization</code> is required, and even
+            then it's logged loudly. Try it in the checker below.</p>
+        </div>
+        <div class="feature-card reveal" style="--delay:320ms">
+          <span class="feature-icon">⌂</span>
+          <h4>Local-first execution</h4>
+          <p>No embedded credentials, no hosted backend, no telemetry. Cloud paths use your own
+            AWS/Kubernetes credential chain, exactly like the AWS CLI or <code>kubectl</code>
+            themselves.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECURITY MODEL -->
+  <section class="section" id="security">
+    <div class="container">
+      <h2 class="section-title reveal"><span class="tag">07</span> Security Model</h2>
+      <div class="security-grid">
+        <div class="security-card reveal">
+          <h4>Authorization checks</h4>
+          <p><code>toolkit/security.py::require_authorized_target</code> blocks nmap/ZAP/Trivy-image
+            scans and Splunk attack simulations against anything outside loopback + RFC1918
+            private ranges unless <code>--i-have-authorization</code> is passed explicitly — and
+            even then it logs a loud warning. Only test systems you own or hold written permission
+            to assess.</p>
+        </div>
+        <div class="security-card reveal" style="--delay:100ms">
+          <h4>Credential handling</h4>
+          <p>No embedded credentials, anywhere. AWS/Azure/GCP credentials are read strictly from
+            environment variables / the standard credential chain
+            (<code>toolkit/utils.py::get_cloud_credentials</code>) — never hardcoded, never stored
+            by ToolKit. Lab files require every password/token/CIDR as an explicit input with no
+            built-in defaults.</p>
+        </div>
+        <div class="security-card reveal" style="--delay:200ms">
+          <h4>Safe scanning</h4>
+          <p>Results aren't fabricated — <code>toolkit report</code> reads the real persisted
+            result of the most recent run, or fails clearly if none exists. ZAP/nmap/Trivy output
+            is parsed defensively, subprocess calls have explicit timeouts, and the IaC Auditor /
+            LLM Risk Scanner are documented as heuristic pattern matchers, not certified
+            detection.</p>
+        </div>
+      </div>
+
+      <div class="auth-checker reveal" style="--delay:260ms">
+        <h3>Try the authorization guardrail</h3>
+        <p class="section-lede">This reimplements the private/loopback check from
+          <code>toolkit/security.py</code> client-side — the same RFC1918 + loopback ranges, the
+          same pass/block logic. It does <strong>not</strong> resolve hostnames via DNS the way the
+          real <code>socket.gethostbyname</code> call does, so only literal IPs, CIDRs, and
+          <code>localhost</code> are evaluated here; arbitrary hostnames fall through to "cannot
+          verify client-side."</p>
+        <div class="auth-checker-controls">
+          <input type="text" id="auth-target" placeholder="e.g. 192.168.1.10, 10.0.0.5/24, 8.8.8.8, localhost">
+          <label class="checkbox-label">
+            <input type="checkbox" id="auth-override"> --i-have-authorization
+          </label>
+          <button class="btn btn-small btn-primary" id="auth-check-btn">Check</button>
+        </div>
+        <div class="auth-result" id="auth-result"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TESTING -->
+  <section class="section section-alt" id="testing">
+    <div class="container">
+      <h2 class="section-title reveal"><span class="tag">08</span> Testing</h2>
+      <div class="testing-layout">
+        <div class="reveal">
+          <p>The full suite is run manually against the repository and documented, not just
+            claimed. This page cannot execute <code>pytest</code> — run it yourself from a clone.</p>
+          <div class="test-stat">
+            <span class="test-stat-number">102</span>
+            <span class="test-stat-label">passed · 0 failed · 0 skipped</span>
+          </div>
+          <p class="section-lede" style="margin-top:1rem;">Actual result at last verification, as
+            documented in the project README. See
+            <a href="https://github.com/imharshitaa/toolkit/blob/main/tests/README.md" target="_blank" rel="noopener">tests/README.md</a>
+            for the full breakdown, including what requires Docker/live binaries and isn't
+            exercised by the unit suite.</p>
+        </div>
+        <div class="term-window reveal" style="--delay:120ms">
+          <div class="term-chrome">
+            <span class="term-dot dot-red"></span>
+            <span class="term-dot dot-yellow"></span>
+            <span class="term-dot dot-green"></span>
+            <span class="term-title">zsh — pytest</span>
+          </div>
+          <pre class="term-body">$ pip install -r requirements-dev.txt
+$ pytest -v
+
+...
+<span class="ok">102 passed</span>, 0 failed, 0 skipped</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LIMITATIONS -->
+  <section class="section" id="limitations">
+    <div class="container">
+      <h2 class="section-title reveal"><span class="tag">09</span> Limitations</h2>
+      <p class="section-lede reveal">Documented explicitly rather than silently skipped — this
+        section exists to draw a hard line between what runs today and what is cataloged for
+        reference.</p>
+
+      <div class="limitations-layout">
+        <div class="reveal">
+          <h3>Implemented vs. catalog-only</h3>
+          <div class="table-wrap">
+            <table class="status-table" id="status-table"></table>
+          </div>
+        </div>
+
+        <div class="reveal" style="--delay:120ms">
+          <h3>Known limitations</h3>
+          <ul class="limitation-list">
+            <li><strong>nmap / Trivy binaries</strong> — not installed in every environment. Unit
+              tests mock <code>subprocess</code>/<code>shutil.which</code>; real binary output is
+              covered by parser tests, not a live scan.</li>
+            <li><strong>Docker-dependent live deploys</strong> (ZAP daemon, Wazuh stack, Splunk
+              Docker deployment) require a working Docker daemon — covered by mocked integration
+              tests where Docker isn't available.</li>
+            <li><strong>Full Splunk/Wazuh stacks</strong> are multi-GB and slow to bring up —
+              covered by dry-run + mocked tests, not a live full-stack deployment in CI.</li>
+            <li><strong>Live AWS/Kubernetes deploys</strong> require the operator's own
+              cloud/cluster credentials, which this project does not have or store. The code paths
+              are present and readable, not exercised against a real account here.</li>
+            <li><strong><code>toolkit scan --output</code></strong> is accepted by the CLI but
+              unused — every module persists its result via <code>toolkit/state.py</code>
+              regardless. Use <code>toolkit report</code> to get output.</li>
+            <li><strong>This website</strong> — the console above simulates CLI output text; it
+              does not install binaries, spawn containers, or touch a network. Every "supported
+              operation" and flag shown is read from the real source, not guessed.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="container footer-grid">
+    <div>
+      <a class="brand" href="#top">
+        <span class="brand-glyph">&gt;_</span>
+        <span class="brand-text">ToolKit</span>
+      </a>
+      <p class="footer-blurb">A command-line framework for deploying, scanning, and reporting
+        across open-source security tooling. Personal security engineering portfolio project.</p>
+      <pre class="footer-install"><code>git clone https://github.com/imharshitaa/toolkit.git
+cd toolkit
+python3 -m venv .venv &amp;&amp; source .venv/bin/activate
+pip install -e .
+toolkit --version</code></pre>
+    </div>
+
+    <div>
+      <h5>Repository</h5>
+      <ul>
+        <li><a href="https://github.com/imharshitaa/toolkit" target="_blank" rel="noopener">GitHub repository</a></li>
+        <li><a href="https://github.com/imharshitaa/toolkit/blob/main/README.md" target="_blank" rel="noopener">Project README</a></li>
+        <li><a href="https://github.com/imharshitaa/toolkit/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a></li>
+      </ul>
+    </div>
+
+    <div>
+      <h5>Documentation</h5>
+      <ul>
+        <li><a href="https://github.com/imharshitaa/toolkit/blob/main/tests/README.md" target="_blank" rel="noopener">Testing guide</a></li>
+        <li><a href="https://github.com/imharshitaa/toolkit/blob/main/labs/docker/README.md" target="_blank" rel="noopener">Docker lab</a></li>
+        <li><a href="https://github.com/imharshitaa/toolkit/blob/main/labs/terraform/README.md" target="_blank" rel="noopener">Terraform lab</a></li>
+      </ul>
+    </div>
+
+    <div>
+      <h5>On this page</h5>
+      <ul>
+        <li><a href="#console">Command console</a></li>
+        <li><a href="#reports">Sample reports</a></li>
+        <li><a href="#security">Security model</a></li>
+        <li><a href="#limitations">Limitations</a></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="container footer-bottom">
+    <p>© 2026 ToolKit — a security engineering portfolio project. Not affiliated with any vendor
+      listed in the catalog.</p>
+    <p class="footer-note">This site is a static project showcase, not a functional web version of
+      the CLI.</p>
+  </div>
+</footer>
+
+<button class="to-top" id="to-top" aria-label="Back to top">↑</button>
+
+<script src="assets/data.js"></script>
+<script src="assets/script.js"></script>
+</body>
+</html>
